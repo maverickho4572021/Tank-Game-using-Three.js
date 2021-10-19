@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>tank game</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				margin: 0px;
+				background-color: #000000;
+				overflow: hidden;
+			}
+			#info { 
+				position: absolute; 
+				left: 1em; 
+				top: 1em; 
+				background: rgba(0,0,0,.8); 
+				padding: .5em;
+				color: white;
+				font-family: monospace;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="info"></div>
+		<script src="three.js/build/three.r89.min.js"></script>
+		<script src="js/controls/OrbitControls.js"></script>
+		<script src="js/libs/dat.gui.min.js"></script>
+
+		<script>
+			"use strict";
+			var controls;
+			var light, light2, light3;
+			var camera, scene, renderer;
+
+			var tank, head;
+			var ball, turret_outside, turret_inside, body, tire_lf, tire_lb, tire_rf, tire_rb;
+
+			var w, s, a, d, ArrowLeft, ArrowRight, space;
+			var bullets = [];
+			var ghosts = [];
+
+			var gravity = -9.8; // 向上為正
+
+			var heading = 0;
+			var barrelHeading = 0;
+			var velocity = 20;
+			var rotSpeed = 10;
+			var barrelRotspeed = 7;
+			var produceVelocity = 5;
+			var initialDistance = 250;
+			var enemySpeed = 100;
+			var followMe = false;
+			var followMeYet = false;
+
+			var infoElem = document.querySelector('#info');
+			var startGame = false, endGame = false;
+			var clock;
+			var startTime, produceTime;
+			var score;
+
+			var gui, params;
+			var guiMe = function() {
+				this.Heading = heading;
+				this.BarrelHeading = barrelHeading;
+				this.Velocity = velocity;
+				this.RotSpeed = rotSpeed;
+				this.BarrelRotSpeed = barrelRotspeed;
+				this.ProduceVelocity = produceVelocity;
+				this.InitialDistance = initialDistance;
+				this.EnemySpeed = enemySpeed;
+				this.Stop = function() {
+					velocity = 0;
+					this.Velocity = velocity;
+				};
+				this.FollowMe = followMe;
+			};
+
+			init();		
+			animate();
+
+			function init() {
+
+				w = s = a = d = ArrowLeft = ArrowRight = space = false;
+				clock = new THREE.Clock();
+
+				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 10, 5000 );
+				camera.position.y = 500;
+				camera.position.z = 400;
+
+				scene = new THREE.Scene();
+				tank = new THREE.Object3D();
+				head = new THREE.Object3D();				
+				scene.add( tank );
+				tank.add( head );
+
+				// create a light
+				light = new THREE.DirectionalLight( 0xffffff );
+				light.position.set( 100, 200, 400 );
+				scene.add( light );
+				light2 = new THREE.DirectionalLight( 0xffffff );
+				light2.position.set( -400, 200, -400 );
+				scene.add( light2 );
+				light3 = new THREE.DirectionalLight( 0xffffff );
+				light3.position.set( 100, -400, -400 );
+				scene.add( light3 );
+
+				// add a ground plane
+				var texture = new THREE.TextureLoader().load( 'textures/UV_Grid_Sm.jpg' );
+				var geometry = new THREE.PlaneGeometry( 1000, 1000 );
+				var material = new THREE.MeshPhongMaterial( { map: texture, side: THREE.DoubleSide } );
+				var plane = new THREE.Mesh( geometry, material );
+				plane.rotation.x = -90 * Math.PI / 180;
+				plane.position.y = 0.0;
+				scene.add( plane );
+				
+				// add axis
+				// var axisHelper = new THREE.AxesHelper( 200 );
+				// tank.add( axisHelper );
+
+				// 加上砲台軸
+				texture = new THREE.TextureLoader().load( 'textures/crate.gif' );
+				geometry = new THREE.SphereGeometry( 25, 32, 16 );
+				material = new THREE.MeshPhongMaterial( { map: texture } );
+				ball = new THREE.Mesh( geometry, material );
+				ball.rotation.y = 90 * Math.PI / 180;
+				ball.position.y = 37.50;
+				head.add( ball );
+
+				// 加上砲管外圈
+				texture = new THREE.TextureLoader().load( 'textures/crate.gif' );
+				geometry = new THREE.BoxBufferGeometry( 12, 12, 50 ); //做個箱子
+				material = new THREE.MeshBasicMaterial( { map: texture  } ); //無光影概念
+				turret_outside = new THREE.Mesh( geometry, material );
+				turret_outside.position.z = 25.00;
+				turret_outside.position.y = 50.00;
+				turret_outside.rotation.x = THREE.Math.degToRad(-15)
+				head.add( turret_outside );
+
+				// 加上砲管內圈
+				geometry = new THREE.BoxBufferGeometry( 7, 7, 55 );
+				material = new THREE.MeshBasicMaterial( { color: 0x000000  } );
+				turret_inside = new THREE.Mesh( geometry, material );
+				turret_inside.position.z = 25.00;
+				turret_inside.position.y = 50.00;
+				turret_inside.rotation.x = THREE.Math.degToRad(-15)
+				head.add( turret_inside );
+
+				// 加上車身
+				texture = new THREE.TextureLoader().load( 'textures/crate.gif' );
+				geometry = new THREE.BoxBufferGeometry( 75, 30, 100 );
+				material = new THREE.MeshBasicMaterial( { map: texture } );
+				body = new THREE.Mesh( geometry, material );
+				body.position.y = 25.00;
+				tank.add( body );
+
+				// 加上輪子
+				texture = new THREE.TextureLoader().load( 'textures/tire.jpg' );
+				geometry = new THREE.CylinderGeometry( 12, 12, 12, 64 );
+				material = new THREE.MeshBasicMaterial( { map: texture  } );
+				// 左前
+				tire_lf = new THREE.Mesh( geometry, material );
+				tire_lf.position.x = 37.50;
+				tire_lf.position.y = 12.51;
+				tire_lf.position.z = 25.50;
+				tire_lf.rotation.z = THREE.Math.degToRad(90)	
+				tank.add( tire_lf );
+				// 左後
+				tire_lb = new THREE.Mesh( geometry, material );
+				tire_lb.position.x = 37.50;
+				tire_lb.position.y = 12.51;
+				tire_lb.position.z = -25.50;
+				tire_lb.rotation.z = THREE.Math.degToRad(90)
+				tank.add( tire_lb );
+				// 右前
+				tire_rf = new THREE.Mesh( geometry, material );
+				tire_rf.position.x = -37.50;
+				tire_rf.position.y = 12.51;
+				tire_rf.position.z = 25.50;
+				tire_rf.rotation.z = THREE.Math.degToRad(90)	
+				tank.add( tire_rf );
+				// 右後
+				tire_rb = new THREE.Mesh( geometry, material );
+				tire_rb.position.x = -37.50;
+				tire_rb.position.y = 12.51;
+				tire_rb.position.z = -25.50;
+				tire_rb.rotation.z = THREE.Math.degToRad(90)
+				tank.add( tire_rb );	
+
+				renderer = new THREE.WebGLRenderer();
+
+				// set the background color to gray
+				renderer.setClearColor( 0xa0a0a0 );
+
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				document.body.appendChild( renderer.domElement );
+
+				// let's have the mouse affect the view
+				controls = new THREE.OrbitControls( camera, renderer.domElement );
+				// 取消鍵盤控制視角
+				controls.enableKeys = false;
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+				// add some GUI
+				params = new guiMe();
+				gui = new dat.GUI();
+
+				gui.add( params, 'Heading').listen();
+				gui.add( params, 'BarrelHeading').listen();
+				gui.add( params, 'Velocity', 0, 30 );
+				gui.add( params, 'RotSpeed', 0, 30 );
+				gui.add( params, 'BarrelRotSpeed', 0, 30 );
+				gui.add( params, 'ProduceVelocity', 1, 60 );
+				gui.add( params, 'InitialDistance', 0, 500 );
+				gui.add( params, 'EnemySpeed', 0, 300 )
+				gui.add( params, 'Stop');
+				gui.add( params, 'FollowMe');
+				gui.open();
+
+				window.onkeydown = function( event ) {
+			        var key = String.fromCharCode(event.keyCode);
+			        switch( key ) {					
+						case 'w': case 'W': w = true; break;
+			          	case 's': case 'S': s = true; break;
+			          	case 'a': case 'A': a = true; break;
+			          	case 'd': case 'D': d = true; break;
+						case '%': ArrowLeft = true; break;
+			          	case '\'': ArrowRight = true; break;
+						case ' ': space = true; break;
+						case 'g': case 'G':
+							if ( !startGame && !endGame )
+							{
+								startGame = true;
+								makeGhost();
+								startTime = produceTime = clock.getElapsedTime();
+								score = 0;
+							}
+							break;
+						case 'r': case 'R':
+							reset();
+							break;
+			        }
+			    };
+				window.onkeyup = function( event ) {
+			        var key = String.fromCharCode(event.keyCode);
+			        switch( key ) {
+			          	case 'w': case 'W': w = false; break;
+			          	case 's': case 'S': s = false; break;
+			          	case 'a': case 'A': a = false; break;
+			          	case 'd': case 'D': d = false; break;
+						case '%': ArrowLeft = false; break;
+			          	case '\'': ArrowRight = false; break;
+			        }
+			    };
+			}
+
+			function onWindowResize() {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}
+
+			function makeGhost()
+			{
+				// 製作幽靈
+				var ghost = new THREE.Object3D();
+				// 主體
+				var texture = new THREE.TextureLoader().load( 'textures/ghost.png' );
+				var geometry = new THREE.SphereGeometry( 15, 32, 32 );
+				var material = new THREE.MeshBasicMaterial( { map: texture } );
+				var ghost_body = new THREE.Mesh( geometry, material );
+				ghost_body.rotation.y = THREE.Math.degToRad(-90);
+				ghost.add( ghost_body );
+				// 左手
+				geometry = new THREE.CylinderGeometry( 0.5, 4.5, 9, 64 );
+				material = new THREE.MeshBasicMaterial( { color: 0xffffff  } );
+				var ghost_handLeft = new THREE.Mesh( geometry, material );
+				ghost_handLeft.position.y = 3;
+				ghost_handLeft.position.x = 15;
+				ghost_handLeft.rotation.z = THREE.Math.degToRad(-65);
+				ghost.add( ghost_handLeft );
+				// 右手
+				var ghost_handRight = new THREE.Mesh( geometry, material );
+				ghost_handRight.position.y = 3;
+				ghost_handRight.position.x = -15;
+				ghost_handRight.rotation.z = THREE.Math.degToRad(65);
+				ghost.add( ghost_handRight );
+				// 尾巴
+				geometry = new THREE.CylinderGeometry( 0.2, 4.5, 15, 64 );
+				var ghost_tail = new THREE.Mesh( geometry, material );
+				ghost_tail.position.y = -6.5;
+				ghost_tail.position.z = -12;
+				ghost_tail.rotation.x = THREE.Math.degToRad(-67.8);
+				ghost.add( ghost_tail );
+
+				var itsX = Math.floor( Math.random() * 1000 ) + -500;
+				var itsZ = Math.floor( Math.random() * 1000 ) + -500;
+				while ( Math.sqrt( ( itsX - tank.position.x ) * ( itsX - tank.position.x ) + ( itsZ - tank.position.z ) * ( itsZ - tank.position.z ) ) < initialDistance )
+				{
+					itsX = Math.floor( Math.random() * 1000 ) + -500;
+					itsZ = Math.floor( Math.random() * 1000 ) + -500;
+				}
+				var itsY = Math.floor( Math.random() * 10 ) + 50;
+				var itsRange = Math.floor( Math.random() * 10 ) + 5;
+				ghost.position.set( itsX, itsY, itsZ );
+				ghost.lookAt( tank.position.x, tank.position.y + 37.5, tank.position.z );
+				var shot = false;
+				var ghostInfo = { ghost, itsY, itsRange, shot };
+				scene.add( ghost );
+				ghosts.push( ghostInfo );
+			}
+
+			function reset()
+			{
+				ghosts.forEach( gh => {
+					gh.shot = true;
+				});
+				bullets.forEach( bu => {
+					bu.shot = true;
+				});
+				tank.position.x = tank.position.z = tank.rotation.y = head.rotation.y = 0;
+				tank.add( head );
+				score = 0;
+				startGame = false;
+				endGame = false;
+			}
+
+			function animate() {
+				requestAnimationFrame( animate );	
+
+				if ( !endGame )
+				{
+					if ( w )
+					{
+						if ( tank.position.x + Math.sin (tank.rotation.y ) * velocity * 0.1 < 450 
+							&& tank.position.x + Math.sin( tank.rotation.y ) * velocity * 0.1 > -450 )
+							tank.position.x += Math.sin( tank.rotation.y ) * velocity * 0.1;
+						if ( tank.position.z + Math.cos( tank.rotation.y ) * velocity * 0.1 < 450 
+							&& tank.position.z + Math.cos( tank.rotation.y ) * velocity * 0.1 > -450 )
+							tank.position.z += Math.cos (tank.rotation.y ) * velocity * 0.1;
+						tire_lf.rotation.x = tire_lb.rotation.x = tire_rf.rotation.x = tire_rb.rotation.x += velocity * 0.01;
+					} 
+					if ( s ) 
+					{
+						if ( tank.position.x - Math.sin( tank.rotation.y ) * velocity * 0.1 < 450 
+							&& tank.position.x - Math.sin( tank.rotation.y ) * velocity * 0.1 > -450 )
+							tank.position.x -= Math.sin( tank.rotation.y ) * velocity * 0.1;
+						if ( tank.position.z - Math.cos( tank.rotation.y ) * velocity * 0.1 < 450 
+							&& tank.position.z - Math.cos( tank.rotation.y ) * velocity * 0.1 > -450 )
+							tank.position.z -= Math.cos( tank.rotation.y ) * velocity * 0.1;
+						tire_lf.rotation.x = tire_lb.rotation.x = tire_rf.rotation.x = tire_rb.rotation.x -= velocity * 0.01;
+					}
+					if ( a ) 
+					{
+						tank.rotation.y += rotSpeed * 0.005;
+						tire_lf.rotation.x = tire_lb.rotation.x -= rotSpeed * 0.01;
+						tire_rf.rotation.x = tire_rb.rotation.x += rotSpeed * 0.01;
+					}
+					if ( d ) 
+					{
+						tank.rotation.y -= rotSpeed * 0.005;
+						tire_lf.rotation.x = tire_lb.rotation.x += rotSpeed * 0.01;
+						tire_rf.rotation.x = tire_rb.rotation.x -= rotSpeed * 0.01;
+					}
+					if ( ArrowLeft ) head.rotation.y += barrelRotspeed * 0.005;	
+					if ( ArrowRight ) head.rotation.y -= barrelRotspeed * 0.005;
+					if ( space )
+					{
+						space = false;
+						var shootTime = Date.now();				
+						var bullet = new THREE.Mesh( new THREE.SphereGeometry( 3.5, 32, 16 ), 
+									new THREE.MeshPhongMaterial( { map: new THREE.TextureLoader().load( 'textures/fire.png' ) } ) );
+						var totalRatation = tank.rotation.y + head.rotation.y;
+						bullet.position.x = tank.position.x + 50 * Math.sin( totalRatation );
+						bullet.position.y = 57;
+						bullet.position.z = tank.position.z + 50 * Math.cos( totalRatation );
+						scene.add( bullet );
+						var shot = false;
+						var bulletInf = { bullet, totalRatation, shootTime, shot };
+						bullets.push( bulletInf );
+					}
+
+					// 判斷是否擊中敵人
+					bullets.forEach( bu => {
+						ghosts.forEach( gh => {
+							var distanceA = Math.abs( bu.bullet.position.x - gh.ghost.position.x );
+							//var distanceB = Math.abs( bu.bullet.position.y - gh.ghost.position.y );
+							var distanceC = Math.abs( bu.bullet.position.z - gh.ghost.position.z );
+							if ( Math.sqrt( distanceA * distanceA + /*distanceB * distanceB +*/ distanceC * distanceC ) < 15 )
+							{
+								++score;
+								bu.shot = gh.shot = true;
+							}						
+						});	
+					});
+
+					// 射子彈
+					bullets.forEach( bu => {
+						if ( bu.bullet.position.y < 0 || bu.shot )
+						{
+							scene.remove( bu.bullet );
+							bullets.splice( bullets.indexOf( bu ), 1 );
+						}
+						else
+						{
+							bu.bullet.position.x += Math.sin( bu.totalRatation ) * 10;				
+							bu.bullet.position.z += Math.cos( bu.totalRatation ) * 10;
+							bu.bullet.position.y += ( 10 * Math.sin( Math.PI * 15 / 180.0 ) + gravity * ( Date.now() - bu.shootTime ) * 0.001 );
+						}
+					});
+					// 幽靈行為
+					ghosts.forEach( gh => {
+						if ( gh.shot )
+						{
+							scene.remove( gh.ghost );
+							ghosts.splice( ghosts.indexOf( gh ), 1 );
+						}
+						else
+						{				
+							gh.ghost.position.y = gh.itsY + gh.itsRange * Math.abs( Math.cos( gh.itsRange + Date.now() * 0.003 ) );
+							var distanceX = gh.ghost.position.x - tank.position.x;
+							var distanceZ = gh.ghost.position.z - tank.position.z;
+							var angle = Math.atan( Math.abs( distanceZ ) / Math.abs( distanceX ) );
+							// 幽靈在第一象限
+							if ( distanceX > 0 && distanceZ > 0 )
+							{
+								gh.ghost.position.x -= enemySpeed * 0.005 * Math.cos( angle );
+								gh.ghost.position.z -= enemySpeed * 0.005 * Math.sin( angle );
+							}
+							// 幽靈在第二象限
+							if ( distanceX < 0 && distanceZ > 0 )
+							{
+								gh.ghost.position.x += enemySpeed * 0.005 * Math.cos( angle );
+								gh.ghost.position.z -= enemySpeed * 0.005 * Math.sin( angle );
+							}
+							// 幽靈在第三象限
+							if ( distanceX < 0 && distanceZ < 0 )
+							{
+								gh.ghost.position.x += enemySpeed * 0.005 * Math.cos( angle );
+								gh.ghost.position.z += enemySpeed * 0.005 * Math.sin( angle );
+							}
+							// 幽靈在第四象限
+							if ( distanceX > 0 && distanceZ < 0 )
+							{
+								gh.ghost.position.x -= enemySpeed * 0.005 * Math.cos( angle );
+								gh.ghost.position.z += enemySpeed * 0.005 * Math.sin( angle );
+							}
+							gh.ghost.lookAt( tank.position.x, tank.position.y + 37.5, tank.position.z );
+
+							var rushX = Math.abs( gh.ghost.position.x - tank.position.x );
+							var rushZ = Math.abs( gh.ghost.position.z - tank.position.z );
+							if ( Math.sqrt( rushX * rushX + rushZ * rushZ ) < 30 )
+							{
+								infoElem.textContent = 'YOU DIE! ( Time: ' + ( parseInt( clock.getElapsedTime() - startTime )).toString() + ' / Score: ' + score.toString() + ' ) . . . Press R to reset . . .';
+								endGame = true;
+								tank.remove( head );
+							}
+						}
+					});
+
+					if ( followMe )
+					{
+						camera.position.x = tank.position.x;
+						camera.position.y = 500;
+						camera.position.z = 400 + tank.position.z;
+						camera.lookAt( tank.position.x, tank.position.y, tank.position.z );
+						controls.enabled = false;
+						followMeYet = true;
+					}
+					else if ( followMeYet )
+					{
+						camera.position.x = 0;
+						camera.position.y = 500;
+						camera.position.z = 400;
+						controls.enabled = true;
+						followMeYet = false;
+					}
+
+					heading = ( tank.rotation.y / Math.PI * 180.0 ) % 360;
+					if ( heading < 0 ) heading += 360;
+					barrelHeading = ( ( head.rotation.y / Math.PI * 180.0 ) + heading ) % 360;
+					if ( barrelHeading < 0 ) barrelHeading += 360;
+
+					params.Heading = heading;
+					params.BarrelHeading = barrelHeading;				
+					
+					velocity = params.Velocity;
+					rotSpeed = params.RotSpeed;
+					barrelRotspeed = params.BarrelRotSpeed;
+					produceVelocity = params.ProduceVelocity;
+					initialDistance = params.InitialDistance;
+					enemySpeed = params.EnemySpeed;
+					followMe = params.FollowMe;
+
+					if ( !startGame )
+						infoElem.textContent = 'Press G to start game.';
+					else if ( !endGame )
+					{
+						infoElem.textContent = 'Time: ' + ( parseInt( clock.getElapsedTime() - startTime )).toString() + ' / Score: ' + score.toString();
+						if (produceTime + produceVelocity < clock.getElapsedTime())
+						{					
+							produceTime = clock.getElapsedTime();
+							makeGhost();			
+						}
+					}
+				}
+				renderer.render( scene, camera );
+				controls.update();
+			}
+		</script>
+	</body>
+</html>
